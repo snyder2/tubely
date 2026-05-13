@@ -87,7 +87,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, 500, "Failed to get video aspect ratio", err)
 	}
 
-	fmt.Println("aspect ratio:", aspectRatio)
+	// fmt.Println("aspect ratio:", aspectRatio)
 
 	var keyPrefix string
 	switch aspectRatio {
@@ -97,6 +97,16 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		keyPrefix = "portrait"
 	default:
 		keyPrefix = "other"
+	}
+
+	processedVideoPath, err := processVideoForFastStart(videoFile.Name())
+	if err != nil {
+		respondWithError(w, 500, "Failed to process video for fast start", err)
+	}
+
+	processedVideo, err := os.Open(processedVideoPath)
+	if err != nil {
+		respondWithError(w, 500, "Failed to open processed video", err)
 	}
 
 	_, err = videoFile.Seek(0, io.SeekStart)
@@ -113,7 +123,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	putObjectParams := &s3.PutObjectInput{
 		Bucket:      &cfg.s3Bucket,
 		Key:         &key,
-		Body:        videoFile,
+		Body:        processedVideo,
 		ContentType: &parsedType,
 	}
 
