@@ -132,13 +132,20 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, 500, "Failed to put object to s3 bucket", err)
 	}
 
-	videoURL := "https://" + cfg.s3Bucket + ".s3." + cfg.s3Region + ".amazonaws.com/" + key
+	videoURL := cfg.s3Bucket + "," + key
+	fmt.Println("Video URL:", videoURL)
 	videoData.VideoURL = &videoURL
 
-	err = cfg.db.UpdateVideo(videoData)
+	finalVideo, err := cfg.dbVideoToSignedVideo(videoData)
+	if err != nil {
+		respondWithError(w, 500, "Failed to generate presigned video URL", err)
+	}
+	fmt.Println("Video URL:", finalVideo.VideoURL)
+
+	err = cfg.db.UpdateVideo(finalVideo)
 	if err != nil {
 		respondWithError(w, 500, "Failed to update video in database", err)
 	}
 
-	respondWithJSON(w, http.StatusOK, videoData)
+	respondWithJSON(w, http.StatusOK, finalVideo)
 }
