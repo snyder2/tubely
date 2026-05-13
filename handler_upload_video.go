@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime"
 	"net/http"
 	"os"
@@ -16,6 +17,8 @@ import (
 )
 
 func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request) {
+	http.MaxBytesReader(w, r.Body, 1073741824)
+
 	videoIDString := r.PathValue("videoID")
 	videoID, err := uuid.Parse(videoIDString)
 	if err != nil {
@@ -36,8 +39,6 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	}
 
 	fmt.Println("uploading video", videoID, "by user", userID)
-
-	http.MaxBytesReader(w, r.Body, 1073741824)
 
 	videoData, err := cfg.db.GetVideo(videoID)
 	if err != nil {
@@ -80,6 +81,24 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, 500, "Failed to copy video file to disk", err)
 	}
 
+	aspectRatio, err := getVideoAspectRatio(videoFile.Name())
+	if err != nil {
+		log.Printf("Error: %s", err)
+		respondWithError(w, 500, "Failed to get video aspect ratio", err)
+	}
+
+	fmt.Println("aspect ratio:", aspectRatio)
+
+	var keyPrefix string
+	switch aspectRatio {
+	case "16:9":
+		keyPrefix = "landscape"
+	case "9:16":
+		keyPrefix = "portrait"
+	default:
+		keyPrefix = "other"
+	}
+
 	_, err = videoFile.Seek(0, io.SeekStart)
 	if err != nil {
 		respondWithError(w, 500, "Failed to reset temp file pointer", err)
@@ -89,9 +108,11 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	rand.Read(randomData)
 	urlSequence := base64.RawURLEncoding.EncodeToString(randomData)
 
+	key := keyPrefix + "/" + urlSequence + ".mp4"
+
 	putObjectParams := &s3.PutObjectInput{
 		Bucket:      &cfg.s3Bucket,
-		Key:         &urlSequence,
+		Key:         &key,
 		Body:        videoFile,
 		ContentType: &parsedType,
 	}
@@ -101,7 +122,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, 500, "Failed to put object to s3 bucket", err)
 	}
 
-	videoURL := "https://" + cfg.s3Bucket + ".s3." + cfg.s3Region + ".amazonaws.com/" + urlSequence
+	videoURL := "https://" + cfg.s3Bucket + ".s3." + cfg.s3Region + ".amazonaws.com/" + key
 	videoData.VideoURL = &videoURL
 
 	err = cfg.db.UpdateVideo(videoData)
